@@ -5,9 +5,8 @@ A student-made, human-readable, lightweight linear algebra library written in Py
 
 ```
 >>> from linyalg.matrix import *
->>> pts = [(0, 0.1), (1, 1.2), (2, 3.7), (3, 9.5), (4, 17), (5, 25.6)]
->>> x = Matrix([[x_ for x_, y_ in pts]]).T
->>> y = Matrix([[x_ for x_, y_ in pts]]).T
+>>> Points = Matrix([[0, 0.1], [1, 1.2], [2, 3.7], [3, 9.5], [4, 17], [5, 25.6]])
+>>> x, y = Points[:, 0], Points[:, 1]
 >>> y
 Matrix([[ 0.1],
         [ 1.2],
