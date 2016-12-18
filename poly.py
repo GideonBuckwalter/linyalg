@@ -1,4 +1,4 @@
-from matrix import *
+from .matrix import *
 import random
 from itertools import dropwhile, chain, accumulate
 from functools import reduce
@@ -60,7 +60,7 @@ class Polynomial:
 		return Matrix.from_list_vector(self.coefs + [0]*extra_dims)
 
 	def nonzero_terms(self):
-		return filter(lambda coef: coef != 0, self.coefs)
+		return len(filter(lambda coef: coef != 0, self.coefs))
 
 
 
@@ -103,9 +103,9 @@ class Polynomial:
 		or a scalar (in which case: multiply all the coefficients of self by other).
 		"""
 		if isinstance(other, Polynomial):
-			if len(self.nonzero_terms()) == 1:
+			if self.nonzero_terms() == 1:
 				return self.coefs[-1] * Polynomial([0]*self.degree + other.coefs)
-			elif len(other.nonzero_terms()) == 1:
+			elif other.nonzero_terms() == 1:
 				return other.__mul__(self)
 			else:
 				return self.convolve(other)

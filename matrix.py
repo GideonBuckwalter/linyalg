@@ -1,6 +1,8 @@
 import operator
 from functools import reduce
-from poly import *
+if __name__ != "__main__":
+    from .poly import *
+import copy
 
 __author__ = "Gideon Buckwalter"
 
@@ -13,61 +15,166 @@ Version: Python 3.5.2
 """
 
 class Matrix(object):
-    def __init__(self, mat=[[]]):
+    def __init__(self, mat):
         """
         Pass a two-dimensional list containing the matrix data.
-        A size must be provided if you populate the matrix with
-        some sort of iterable (eg. 2D generator) (<- bad idea!).
         """
-        self.m = len(mat)
-        self.n = len(mat[0])
         self.mat = mat
+        self.m = len(mat)
+        try:
+            self.n = len(mat[0])
+        except IndexError:
+            raise IndexError("Matrix.__init__ was given a 2D list '{}' ".format(mat) +
+                            "that did not have distinct rows.")
+        self.size = (self.m, self.n)
 
-    def size(self):
+    @property
+    def T(self):
         """
-        Returns a tuple containing the size, n x m, of the matrix.
+        Returns the transpose of the matrix. Turns all rows into columns and all columns
+        into rows.
+        Syntax: B = A.T
         """
-        return (self.m, self.n)
+        return Matrix([list(self[:, i]) for i in range(self.n)])
 
-    def col(self, col):
+    def __getitem__(self, key):
         """
-        Returns the column vector at the specified index.
+        Defines bracket indexing of matrices.
+        Syntax:
+        row_2 = M[1]
+        row_3 = M[2,:]
+        ele_23 = M[1,2]
         """
-        return [row[col] for row in self.mat]
 
-    def row(self, row):
-        """
-        Returns the row vector at the specified index.
-        """
-        return self.mat[row]
+        if type(key) is tuple:
 
-    def rows(self):
+            i, j = key
+            if type(i) is slice:
+                if type(j) is int:
+                    j = slice(j, j+1, None)
+                elif type(j) is not slice:
+                    msg = "Invalid matrix index argument type: {}, {}"
+                    raise TypeError(msg.format(type(i), type(j)))
+
+                return Matrix([row[j] for row in self.mat[i]])
+
+            elif type(i) is int:
+                if type(j) is int:
+                    return self.mat[i][j]
+                elif type(j) is slice:
+                    return Matrix([self.mat[i][j]])
+                else:
+                    msg = "Invalid matrix index argument type: {}, {}"
+                    raise TypeError(msg.format(type(i), type(j)))
+        
+        elif type(key) in (int, slice):
+            try:
+                if type(key) is int:
+                    return Matrix([self.mat[key]])
+                else:
+                    return Matrix(self.mat[key])
+            except IndexError:
+                msg = "Invalid slice/index '{}' given for matrix:\n{}."
+                raise IndexError(msg.format(key, self))
+        else:
+            raise TypeError("Invalid matrix index type: {}".format(type(inp)))
+
+    def __setitem__(self, key, value):
         """
-        Returns an iterable of all the rows in the matrix.
+        Allows mutable bracket assignments.
+        Syntax: M[1] = Matrix([[3, 4, 5]])
+                M[1, 2] = 100
+        """
+        if type(key) is tuple:
+            i, j = key
+
+            if type(i) is int:
+                if type(j) is int:
+                    self.mat[i][j] = value
+                elif type(j) is slice:
+
+                    # Used for error detection
+                    j = format_slice(j, self, kind="col")
+
+                    if value.size != (1, j.stop - j.start):
+                        msg = "Slice bounds ({}, {}) did not match overwriting Matrix size {}."
+                        raise IndexError(msg.format(i, j, value.size))
+
+                    # value is something like Matrix([[5,3,2,6,1]])
+                    self.mat[i][j] = value.mat[0]
+                else:
+                    msg = "Invalid matrix index argument type: {}, {}"
+                    raise TypeError(msg.format(type(i), type(j)))
+            elif type(i) is slice:
+                if type(j) is int:
+                    # value is something like Matrix([[1],[2],[3]])
+                    M = copy.deepcopy(self).T
+                    M[j,i] = value.T # Reuse above code on self's transpose
+                    self.mat = M.T.mat
+                elif type(j) is slice:
+
+                    # Used for error detection
+                    i = format_slice(i, self, kind="row")
+                    j = format_slice(j, self, kind="col")
+                    if value.size != (i.stop - i.start, j.stop - j.start):
+                        msg = "Slice bounds ({}, {}) did not match overwriting Matrix size {}."
+                        raise IndexError(msg.format(i, j, value.size))
+
+                    # value is something like Matrix([[5,3,2],[1,8,2],[0,4,3]])
+                    for i_star in range(i.start, i.stop):
+                        self[i_star, j] = value[i_star-i.start]
+                else:
+                    msg = "Invalid matrix index argument type: {}, {}"
+                    raise TypeError(msg.format(type(i), type(j)))
+        elif type(key) in (int, slice):
+            self.mat[key] = value.mat
+        else:
+            raise TypeError("Invalid matrix index type: {}".format(type(inp)))
+
+    def list_rows(self):
+        """
+        Returns an iterable of all the row LISTS in the matrix.
+        >>> M = Matrix([[1,2,3],[4,5,6]])
+
+        >>> list(M.list_rows())
+        [[1,2,3], [4,5,6]]
         """
         return iter(self.mat)
 
-    def cols(self):
+    def list_cols(self):
         """
-        Returns and iterable of all the columns in the matrix.
-        """
-        return (self.T).rows()
+        Returns and iterable of all the column LISTS in the matrix.
+        >>> M = Matrix([[1,2,3],[4,5,6]])
 
-    def submatrix(self, pair1, pair2):
+        >>> list(M.list_cols())
+        [[1,4],[2,5],[3,6]]
         """
-        Returns the submatrix that goes from pair1 to pair2
-        :param pair1: Tuple of starting indices (m1, n1)
-        :param pair2: Tuple of ending indices (m2, n2)
-        :return: Matrix
+        return self.T.list_rows()
+
+    def row_vecs(self):
         """
-        m1, n1 = pair1
-        m2, n2 = pair2
-        return Matrix([row[n1:n2] for row in self.mat[m1:m2]])
+        Returns an iterable of the rows represented as matrices.
+        >>> M = Matrix([[1,2,3],[4,5,6],[7,8,9]])
+
+        >>> list(M.row_vecs())
+        [Matrix([[1,2,3]]), Matrix([[4,5,6]]), Matrix([[7,8,9]])]
+        """
+        return (Matrix([row]) for row in self.list_rows())
+
+    def col_vecs(self):
+        """
+        Returns an iterable of the column vectors represented as matrices.
+        >>> M = Matrix([[1,2,3],[4,5,6],[7,8,9]])
+
+        >>> list(M.col_vecs())
+        [Matrix([[1],[4],[7]]), Matrix([[2],[5],[8]]), Matrix([[3],[6],[9]])]
+        """
+        return (row_vec.T for row_vec in self.T.row_vecs())
 
     def under(self, func):
         """
         A.under(math.cos) will return a copy of Matrix A where each element
-        has been replaced with the cos of that element. Matrix.under only
+        has been replaced with the cosine of that element. Matrix.under only
         works for single-variable functions.
         Syntax: A.under(math.cos)
         """
@@ -81,18 +188,30 @@ class Matrix(object):
         """
         str_mat = self.under(str)
 
-        col_spacings = [max(map(len, col)) for col in str_mat.cols()]
+        col_spacings = [max(map(len, col)) for col in str_mat.list_cols()]
 
-        new_mat = [[ele.rjust(padding) for ele, padding in zip(row, col_spacings)] for row in str_mat.rows()]
+        new_mat = [[ele.rjust(padding) for ele, padding in zip(row, col_spacings)]
+                                       for row in str_mat.list_rows()]
 
         rep = ['[' + ', '.join(row) + ']' for row in new_mat] + \
               [str(self.m) + "x" + str(self.n)]
         return "\n".join(rep)
 
     def __repr__(self):
-        rep = [str(self.mat[0])] + \
-                [" "*7 + str(row) for row in self.mat[1:]]
-        return "Matrix(" + "\n".join(rep) + ")"
+        repr_mat = self.under(repr)
+
+        col_spacings = [max(map(len, col)) for col in repr_mat.list_cols()]
+
+        new_mat = [[ele.rjust(padding) for ele, padding in zip(row, col_spacings)]
+                                       for row in repr_mat.list_rows()]
+
+        rep = ['[' + ', '.join(row) + ']' for row in new_mat]
+
+        rep = [str(rep[0])] + \
+                [" "*8 + str(row) for row in rep[1:]]
+
+        return "Matrix([" + ",\n".join(rep) + "])"
+
 
     def __iter__(self):
         """
@@ -114,53 +233,6 @@ class Matrix(object):
         # TODO: Test out matrices being iterable
         return (element for row in self.mat for element in row)
 
-    def __getitem__(self, key):
-        """
-        Defines bracket indexing of matrices.
-        Syntax:
-        row_2 = M[1]
-        row_3 = M[2,:]
-        ele_23 = M[1,2]
-
-        """
-
-        if type(key) is tuple:
-
-            i, j = key
-            if type(i) is slice:
-                m1, m2 = i.start, i.stop
-                if type(j) is slice:
-                    n1, n2 = j.start, j.stop
-                elif type(j) is int:
-                    n1, n2 = j, j+1
-                else:
-                    msg = "Invalid matrix index argument type: {}, {}"
-                    raise TypeError(msg.format(type(i), type(j)))
-
-                return self.submatrix((m1,n1), (m2,n2))
-
-            elif type(i) is int:
-                if type(j) is int:
-                    return self.mat[i][j]
-                elif type(j) is slice:
-                    return Matrix([self.mat[i][j]])
-                else:
-                    msg = "Invalid matrix index argument type: {}, {}"
-                    raise TypeError(msg.format(type(i), type(j)))
-        
-        elif type(key) in (int, slice):
-            return Matrix([self.mat[key]])
-        else:
-            raise TypeError("Invalid matrix index type: {}".format(type(inp)))
-
-    def __setitem__(self, key, value):
-        """
-        Allows mutable bracket assignments.
-        Syntax: M[1] = [3, 4, 5]
-                M[1][2] = 100
-        """
-        self.mat[key] = value
-
     def __len__(self):
         """
         Defines the output of the len function on a matrix.
@@ -174,7 +246,11 @@ class Matrix(object):
         Tests the equality of two matrices.
         Syntax: A == B
         """
-        return self.mat == other.mat
+        if not isinstance(other, Matrix) or self.size != other.size:
+            return False
+        else:
+            return self.mat == other.mat
+
 
     def __round__(self, ndigits=0):
         """
@@ -182,8 +258,7 @@ class Matrix(object):
         Syntax: round(M, 4)
         # rounds each element in matrix M to 4 decimal places
         """
-        round_ndigits = lambda x: round(x, ndigits)
-        return self.under(round_ndigits)
+        return self.under(lambda ele: round(ele, ndigits))
 
     def __neg__(self):
         """
@@ -224,7 +299,7 @@ class Matrix(object):
 
     def __rmul__(self, scalar):
         """
-        Allows matrices to be multiplied by scalars on the left side of the *.
+        Allows matrices to be multiplied by scalars on the LEFT side of the *.
         Syntax: B = 12 * A
         """
         if not isinstance(scalar, Matrix):
@@ -239,15 +314,18 @@ class Matrix(object):
         Performs matrix multiplication.
         Syntax: C = A @ B
         """
+        if not isinstance(other, Matrix):
+            msg = "Cannot matmul (@) a matrix with the non-matrix instance: {}"
+            raise TypeError(msg.format(repr(other)))
         if self.n == other.m: # If inside dimensions agree,
 
             new_m = self.m
             new_n = other.n
 
             # We are doing the calculation: self @ other
-            new_mat = [[dot_product(row, col)
-                        for col in other.cols()]
-                            for row in self.rows()]
+            new_mat = [[list_dot_product(row, col)
+                        for col in other.list_cols()]
+                            for row in self.list_rows()]
             return Matrix(new_mat)
         else:
             raise MismatchedMatrixSize("Matrix multiplication could not be " +
@@ -273,52 +351,20 @@ class Matrix(object):
             return I(self.m)
 
 
-
-    @property
-    def T(self):
-        """
-        Returns the transpose of the matrix. Turns all rows into columns and all columns
-        into rows.
-        Syntax: B = A.T
-        """
-        return Matrix([self.col(i) for i in range(self.n)])
-
-    # Elementary Row Operations
-    #       These are mutable since it it likely that you will want to
-    #       make a copy and then completely transform the matrix by
-    #       row reducing.
-    def swap_rows(self, Ra, Rb):
-        self[Ra], self[Rb] = self[Rb], self[Ra]
-
-    def scale_row(self, R, by):
-        self[R] = [by * ele for ele in self[R]]
-
-    def to_Ra_add_cRb(self, Ra, c, Rb):
-        """
-        Mutates self by adding c * row[Rb] to row[Ra].
-        Syntax:
-        M.to_Ra_add_cRb(Ra=3, c=-6.32, Rb=0)
-        """
-        self[Ra] = [Ra_ele + c * Rb_ele
-                        for Ra_ele, Rb_ele in
-                        zip(self[Ra], self[Rb])]
-
-
     def matrix_of_cofactors(self):
         return checkerboard(Matrix([[det(self.minor(i, j))    # take determinant of each element's minor
                     for j, ele in enumerate(row)]
                         for i, row in enumerate(self.mat)]))
 
 
-    def minor(self, i, j):
+    def minor(self, ith, jth):
         """
         Returns a matrix made of all the elements of self EXCEPT those from
         row i and column j.
         Syntax: mnr = A.minor(3,2)
         """
-        return Matrix([[self[row][col]
-                    for col in range(self.n) if col != j]
-                        for row in range(self.m) if row != i])
+        return Matrix([[ele for j, ele in enumerate(row) if j != jth]
+                            for i, row in enumerate(self.mat) if i != ith])
 
 
     def reshape(self, new_size):
@@ -334,10 +380,7 @@ class Matrix(object):
         else:
             self.m, self.n = new_size
             expanded = [iter(self)] * self.n
-            return Matrix(list(map(lambda tup: list(tup), zip(*expanded))))
-
-    def zeros(self):
-        return self.under(lambda ele: ele == 0)
+            return Matrix(list(map(list, zip(*expanded))))
 
 
     ##### Alternate Constructors #####
@@ -348,16 +391,6 @@ class Matrix(object):
         Creates a COLUMN vector from a list of values.
         """
         return Matrix([L]).T
-
-    def as_list_vector(self):
-        """
-        Returns a list representation of a column vector OR row vector.
-        Note: this is NOT a reversible function for ROW vectors.
-        """
-        if self.m == 1: # must be a row vector
-            return self.row(0)
-        if self.n == 1: # must be a column vector
-            return self.T.as_list_vector()
 
     ##### Quaternion Extension #####
 
@@ -383,14 +416,14 @@ class Matrix(object):
         >>> Matrix.from_quaternion(1,2,3,4).as_quaternion()
         [1,2,3,4]
         """
-        if self.size() != (4, 4):
+        if self.size != (4, 4):
             raise InvalidMatrixFormat("Cannot represent matrix as quaternion. " +
                 "Matrix was not 4x4.")
-        elif self != Matrix.from_quaternion(*self.col(0)):
+        elif self != Matrix.from_quaternion(*list(self[:, 0])):
             raise InvalidMatrixFormat("Cannot represent matrix as quaternion. " +
                 "Matrix did not match matrix-quaternion template.")
         else:
-            return self.col(0)
+            return list(self[:, 0])
 
 
 ##### Functions of the Matrix Module #####
@@ -401,20 +434,42 @@ def ewise(M1, M2, func):
     TWO-VARIABLE function. Returns the result.
     Syntax: C = Matrix.ewise(A, B, func=math.atan2)
     """
-    if M1.size() == M2.size():
+    if M1.size == M2.size:
         new_mat = [[func(*pair) for pair in zip(M1, M2)]]
-        return Matrix(new_mat).reshape(M1.size())
+        return Matrix(new_mat).reshape(M1.size)
     else:
         raise MismatchedMatrixSize("This operation is only supported for matrices of " +
                                    "the same size. Did you mean to use @ instead of *?")
 
 
-def dot_product(vec1, vec2):
+def list_dot_product(L1, L2):
     """
     Returns the dot product of two LISTS.
-    Syntax: res = dot_product([1, 2, 3], [4, 5, 6])
+    Syntax: res = list_dot_product([1, 2, 3], [4, 5, 6])
     """
-    return sum(ele1 * ele2 for ele1, ele2 in zip(vec1, vec2))
+    # return sum(map(mul, L1, L2))
+    return sum(ele1 * ele2 for ele1, ele2 in zip(L1, L2))
+
+
+def format_slice(slc, overwriting_matrix, kind="col"):
+    if type(slc) is not slice:
+        raise TypeError("format_slice only accepts slice objects as it's " +
+            "first argument. ({} provided)".format(type(slc)))
+
+    if kind == "col":
+        alt_dim = overwriting_matrix.n
+    elif kind == "row":
+        alt_dim = overwriting_matrix.m
+    else:
+        raise TypeError("Keyword argument 'kind' only takes 'col' or 'row'.")
+
+    start = 0 if slc.start is None else slc.start
+    stop = alt_dim if slc.stop is None else slc.stop
+
+    start = alt_dim + start if start < 0 else start
+    stop = alt_dim + stop if stop < 0 else stop
+
+    return slice(start, stop, None)
 
 
 def I(n):
@@ -457,95 +512,52 @@ def derivative_matrix(degree):
         raise MatrixError("Do not pass a negative value as the degree " +
             "of the derivative operator D.")
 
-def row_swap(M, i1, i2):
-    """Should this even be here? Maybe make it a mutable method?"""
-    copy = M
-    copy[i1], copy[i2] = M[i2], M[i1]
-    return copy
 
-
-
-# function retval = rref (m, dummy) 
 def ref(M):
-#      if (nargin < 1) 
-#         usage ("rref (x)"); 
-#      endif 
+    """
+    Returns the row echelon form of the matrix M.
+    """
+    # Copy M to N
+    N = Matrix(M.mat.copy())
 
-# # Bring the pivot to the top row 
-    for i in range(M.m):
-        if M[i][0] == max(M.col(0)):
-            M[i], M[0] = M[0], M[i]
-#      for i=1:rows(m) 
-#        if(m(i,1)==max(m(:,1))) 
-#          scratch=m(i,:); 
-#          m(i,:)=m(1,:); 
-#          m(1,:)=scratch; 
+    print("\nREF of", N, sep="\n")
 
-#        endif    
-#      endfor 
-    if M[0][0] != 0:
-        M[0] = [ele/M[0][0] for ele in M[0]]
-        for i in range(1,M.m):
-            if M[i][0] != 0:
-                M[i] = [ele/M[i][0] - top_ele
-                            for ele, top_ele in zip(M[i], M[0])]
-#      if(m(1,1)!=0) 
-#        m(1,:)=m(1,:)/m(1,1); 
+    # Base case
+    if N.m == 1: # N is an mxn matrix
+        if N[0,0] in [0, 1]:
+            return N
+        else:
+            return 1/N[0,0] * N
 
-#        for i=2:rows(m) 
+    # if col 0 looks like [0,0,0,...]^T or [1,0,0,...]^T
+    if N[0,0] in [1, 0] and all(map(lambda e: e == 0, N[1: , 0])):
+        N[1: , 1: ] = ref(N[1: , 1: ])
+        return N
 
-#          if(m(i,1)!=0) 
-
-#            m(i,:)=(m(i,:)/m(i,1))-m(1,:); 
-
-#          endif 
-#        endfor 
+    if N[0,0] == 0:
+        N.mat[-1] = N.mat.pop(0) # send top row to bottom
+        return ref(N)
     else:
-        if any(M[0]):
-            q = 1
-            while M[0][q] == 0:
-                q += 1
-            M[0] = [ele/M[0][q] for ele in M[0]]
-#      else 
-#          if(any(m(1,:))) 
-#            q=2; 
-#            while(m(1,q)==0) 
-#              q++; 
-#            endwhile 
-#            m(1,:)=m(1,:)/m(1,q); 
-#          endif 
-#      endif 
-    if M.n > 1 and M.n > 1:
-        M[1 : M.m-1][1 : M.n-1] = rref(M[2 : ])
-#      if(columns(m)>1 && rows(m)>1) 
-#         m(2:rows(m),2:columns(m)) = rref( m(2:rows(m),2:columns(m)),1 );    
-#      endif 
+        # Give first row a leading 1
+        if N[0,0] != 1:
+            N[0] = 1/N[0,0] * N[0]
+        
+        # Define a row replacement function
+        def replace(row):
+            print("\nreplace(", repr(row), ")")
+            print("row.mat:", row.mat)
+            print("N.mat:", N.mat)
+            print("N[0]:", N[0])
+            print("N[0].mat:", N[0].mat)
+            print("row[0,0]:", row[0,0])
+            return row - row[0,0]*N[0] \
+                    if row[0,0] != 0 else row # avoid unnecessary division
 
-
-# # Swell, now we're row reduced.  Lets get to rref 
-
-#      if((rows(m)>=2) && (columns(m) >=2) && (nargin ==1)) 
-
-#      for i=0:rows(m)-1 
-#        if( any( m(rows(m)-i,:) ) ) 
-
-#          q=1; 
-#          while(m(rows(m)-i,q)==0) 
-#            q++; 
-#          endwhile 
-#          for j=1:rows(m)-i-1 
-#            m(j,:)=m(j,:)-(m(rows(m)-i,:)*m(j,q)); 
-#          endfor 
-
-#        endif 
-#      endfor 
-
-#      endif 
-
-#      retval = m; 
-
-# endfunction
-
+        head = N[0]
+        print("\nHead:", repr(head))
+        tail = list(map(lambda m: m.mat[0], map(replace, N[1:].row_vecs())))
+        print("Tail:", tail)
+        return ref(Matrix(head + tail))
 
 
 def checkerboard(M):
@@ -562,7 +574,7 @@ def checkerboard(M):
     """
     return Matrix([[ele * (-1)**(i + j)
             for j, ele in enumerate(row)]
-                for i, row in enumerate(M.rows())], size=(M.m, M.n))
+                for i, row in enumerate(M.list_rows())])
 
 def det(M):
     """
@@ -572,19 +584,19 @@ def det(M):
     if M.m != M.n:
         raise MatrixError("Determinant is not defined for non-square matrices." +
                             "Was given matrix of size {}x{}.".format(M.m, M.n))
-    elif M.size() == (1, 1):
-        return M[0][0]
-    elif M.size() == (3, 3):
-        return M[0][0]*(M[1][1]*M[2][2] - M[2][1]*M[1][2]) - \
-               M[0][1]*(M[1][0]*M[2][2] - M[2][0]*M[1][2]) + \
-               M[0][2]*(M[1][0]*M[2][1] - M[2][0]*M[1][1])
+    elif M.size == (1, 1):
+        return M[0,0]
+    elif M.size == (3, 3):
+        return M[0,0]*(M[1,1]*M[2,2] - M[2,1]*M[1,2]) - \
+               M[0,1]*(M[1,0]*M[2,2] - M[2,0]*M[1,2]) + \
+               M[0,2]*(M[1,0]*M[2,1] - M[2,0]*M[1,1])
     else:
-        # 1) For each element in the first row of the checkerboard:
+        # 1) For each element in the first row of the checkerboard (all are either +/-1):
         #       a) Multiply that element by the determinant of that element's minor.
         #       b) Add that result to the running total.
         # 2) Return the total.
         return sum(row_1_ele * det(M.minor(0, j))
-                for j, row_1_ele in enumerate(checkerboard(M).row(0)))
+                for j, row_1_ele in enumerate(checkerboard(M)[0]))
 
 def adj(M):
     return M.matrix_of_cofactors().T
@@ -641,19 +653,26 @@ class InvalidMatrixFormat(MatrixError):
 
 
 if __name__ == '__main__':
-    M = Matrix([[0,1,2,3,4,5,6,7],
-                [9,8,7,6,5,4,3,2],
+    M = Matrix([[ 0, 1, 2, 3, 4, 5, 6, 7],
+                [ 9, 8, 7, 6, 5, 4, 3, 2],
                 [-0,-1,-2,-3,-4,-5,-6,-7],
                 [-9,-8,-7,-6,-5,-4,-3,-2],
-                [-0,1,-2,3,-4,5,-6,7],
-                [-9,8,-7,6,-5,4,-3,2]])
-    print(M)
-    print()
+                [-0, 1,-2, 3,-4, 5,-6, 7],
+                [-9, 8,-7, 6,-5, 4,-3, 2]])
 
-    out = M[:, :]
-    print(out)
-    print(type(out))
+    # print(M)
+    # print()
+
+    # out = M[1:3, 1:3]
+    # print(out)
+    # print(type(out))
+
+    # M[-4:-1, -3:] = Matrix([[9999, 9999, 8888],
+    #                       [9999, 9999, 8888],
+    #                       [9999, 9999, 8888]])
+    # print(M)
     
+    print(ref(M))
 
 
     print()
