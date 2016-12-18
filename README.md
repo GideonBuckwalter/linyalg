@@ -3,7 +3,7 @@ A student-made, human-readable, lightweight linear algebra library written in Py
 
 <h3>Example: Using LinyAlg to perform a polynomial regression</h3>
 
-```
+```py3
 >>> from linyalg.matrix import *
 >>> Points = Matrix([[0, 0.1], [1, 1.2], [2, 3.7], [3, 9.5], [4, 17], [5, 25.6]])
 >>> x, y = Points[:, 0], Points[:, 1]
