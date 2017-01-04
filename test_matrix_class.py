@@ -1,8 +1,29 @@
 import pytest
 from .matrix import *
-from .poly import *
+from .matrix import format_slice, checkerboard, ewise, list_dot_product
 import copy, itertools
 from fractions import Fraction
+from random import randint, uniform, choice
+
+# Define random-matrix generators
+
+def randmat(randfunc, m=None, n=None, rng=100):
+    if m is None: m = randint(1,10)
+    if n is None: n = randint(1,10)
+    return Matrix([[randfunc(-rng, rng) for col in range(n)] for row in range(m)])
+
+def intmat(m=None, n=None, rng=10):
+    return randmat(randint, m, n, rng)
+
+def realmat(m=None, n=None, rng=1):
+    return randmat(uniform, m, n, rng)
+
+def sparcemat(m=None, n=None, rng=10, sparcity=0.6):
+    def picker(low, high):
+        choice([randint(low, high)]*int((1-sparcity)*100) + [0]*int(sparcity*100))
+    return randmat(picker, m, n, rng)
+
+
 
 test_matrices = []
 
@@ -130,9 +151,9 @@ def test_getitem():
     assert A_3x2[0,0] == 1
     assert A_1x1[0,0] == 9
 
-    assert A_4x4[0] == A_4x4[0, :] == Matrix([[1,2,3,4]])
-    assert A_3x2[0] == A_3x2[0, :] == Matrix([[1,2]])
-    assert A_1x1[0] == A_1x1[0, :] == A_1x1
+    assert A_4x4[0] == A_4x4[0, :] == A_4x4[0:1] == Matrix([[1,2,3,4]])
+    assert A_3x2[0] == A_3x2[0, :] == A_3x2[0:1] == Matrix([[1,2]])
+    assert A_1x1[0] == A_1x1[0, :] == A_1x1[0:1] == A_1x1
 
     assert A_4x4[1:3] == Matrix([[5, 6, 7, 8],
                                  [9,10,11,12]])
@@ -222,6 +243,23 @@ def test_setitem():
     A32 = copy.deepcopy(A_3x2)
     A11 = copy.deepcopy(A_1x1)
 
+    A44[2] = Matrix([[-7,-7,-7,-7]])
+    A32[0] = Matrix([[-7,-7]])
+    A11[0] = Matrix([[-7]])
+
+    assert A44 == Matrix([[ 1, 2, 3, 4],
+                          [ 5, 6, 7, 8],
+                          [-7,-7,-7,-7],
+                          [13,14,15,16]])
+    assert A32 == Matrix([[-7,-7],
+                          [ 3, 4],
+                          [ 5, 6]])
+    assert A11 == Matrix([[-7]])
+
+    A44 = copy.deepcopy(A_4x4)
+    A32 = copy.deepcopy(A_3x2)
+    A11 = copy.deepcopy(A_1x1)
+
     A44[0:2] = Matrix([[-7,-7,-7,-7],
                        [-7,-7,-7,-7]])
     A32[0:2] = Matrix([[-7,-7],
@@ -256,7 +294,13 @@ def test_setitem():
                           [5, 6]])
     assert A11 == Matrix([[-7]])
 
-    # Should probably add more tests here...
+    A44 = copy.deepcopy(A_4x4)
+    # Test row swapping
+    A44[0], A44[1] = A44[1], A44[0]
+    assert A44 == Matrix([[ 5,  6,  7,  8],
+                          [ 1,  2,  3,  4],
+                          [ 9, 10, 11, 12],
+                          [13, 14, 15, 16]])
 
 
 def test_row_vecs():
@@ -462,6 +506,19 @@ def test_reshape():
 
     assert A_3x2.reshape([3,2]) == A_3x2
 
+def test_augmented():
+    with pytest.raises(TypeError):
+        A_4x4.augmented(A_3x3)
+    assert A_3x3.augmented(I(3)) == Matrix([[1,2,3,1,0,0],
+                                            [6,5,4,0,1,0],
+                                            [7,8,9,0,0,1]])
+
+def test_with_coords():
+    ans = Matrix([[("1",0,0),("2",0,1),("3",0,2)],
+                  [("6",1,0),("5",1,1),("4",1,2)],
+                  [("7",2,0),("8",2,1),("9",2,2)]])
+    assert A_3x3.under(str).with_coords() == ans
+
 
 # Test class methods
 
@@ -579,8 +636,7 @@ def test_inverse():
     with pytest.raises(MatrixError):
         inv(A_3x2)
 
-    # Test that that inv() produces the correct result for an
-    # invertible matrix
+    # Test that that inv() produces the correct result for an invertible matrix
     C = Cons_4x4.under(Fraction)
     C_inv = inv(C)
 
@@ -595,27 +651,68 @@ def test_inverse():
     # Test that A times its inverse is the identity matrix
     assert C @ C_inv == I(4)
 
+def test_ref():
+    assert ref(A_1x1) == Matrix([[1]])
+    assert ref(Matrix([[0]])) == Matrix([[0]])
+    assert ref(Matrix([[9,0,0,0]])) == Matrix([[1,0,0,0]])
+    assert ref(A_3x3) == Matrix([[1,2,3],
+                                 [0,1,2],
+                                 [0,0,0]])
+    M = Z(4,4)
+    assert ref(M) == M
 
-def test_characteristic_polynomial():
-    M = Matrix([[1,0,0],
-                [0,2,0],
-                [0,0,3]])
+    M[2] = Matrix([[1,7,8,9]])
+    assert ref(M) == Matrix([[1,7,8,9],
+                             [0,0,0,0],
+                             [0,0,0,0],
+                             [0,0,0,0]])
 
-    x = Polynomial("x")
-    p = (x-1)*(x-2)*(x-3)
+    Tricky = Z(4,4)
+    Tricky[-1,-1] = 9
+    ans = Z(4,4)
+    ans[0,-1] = 1
+    assert ref(Tricky) == ans
 
-    assert characteristic_polynomial(M) == p
+    for _ in range(30):
+        n = randint(1,5)
+        R = realmat(n, n)
+        T = intmat(n, n)
+        # Check that det(A) and det(ref(A)) are either both non-zero or both zero.
+        assert bool(det(ref(R))) == bool(det(R))
+        assert bool(det(ref(T))) == bool(det(T))
 
-def test_eigenvalues():
-    M = Matrix([[1,0,0],
-                [0,2,0],
-                [0,0,3]])
-    assert eigenvalues(M) == {1,2,3}
+def test_rref():
+    assert rref(A_1x1) == Matrix([[1]])
+    assert rref(Matrix([[0]])) == Matrix([[0]])
+    assert rref(Matrix([[9,0,0,0]])) == Matrix([[1,0,0,0]])
+    assert rref(A_3x3).under(Fraction) == Matrix([[1,0,-1],
+                                                  [0,1, 2],
+                                                  [0,0, 0]])
 
+    assert rref(A_4x4).under(Fraction) == Matrix([[1,0,-1,-2],
+                                                  [0,1, 2, 3],
+                                                  [0,0, 0, 0],
+                                                  [0,0, 0, 0]])
 
+    assert round(rref(Cons_4x4), 12) == round(I(4), 12)
 
+    # Check that rref(M) == I(M.n) <=> det(M) != 0
+    for _ in range(20):
+        n = randint(2,5)
+        R = realmat(n,n)
+        while det(R) == 0:
+            R = realmat(n,n)
+        assert round(rref(R), 12) == round(I(n), 12)
 
-
-
-
-
+def test_row_reduction_and_cofactor_expansion_inverse():
+    for _ in range(20):
+        n = randint(2,5)
+        R = realmat(n, n).under(Fraction)
+        T = intmat(n, n).under(Fraction)
+        # Check that det(A) and det(ref(A)) are either both non-zero or both zero.
+        if det(R) != 0:
+            assert round(row_reduction_inverse(R), 10) == \
+                   round(cofactor_expansion_inverse(R), 10)
+        if det(T) != 0:
+            assert round(row_reduction_inverse(T), 10) == \
+                   round(cofactor_expansion_inverse(T), 10)

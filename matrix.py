@@ -1,10 +1,13 @@
 import operator
 from functools import reduce
-if __name__ != "__main__":
-    from .poly import *
 import copy
+from fractions import Fraction
 
 __author__ = "Gideon Buckwalter"
+
+__all__ = ["Matrix", "I", "Z", "derivative_matrix", "ref", "det", "adj", "inv", "rref",
+            "row_reduction_inverse", "cofactor_expansion_inverse",
+            "MatrixError", "MismatchedMatrixSize", "InvalidMatrixFormat"]
 
 """
 Author: Gideon Buckwalter
@@ -24,8 +27,9 @@ class Matrix(object):
         try:
             self.n = len(mat[0])
         except IndexError:
-            raise IndexError("Matrix.__init__ was given a 2D list '{}' ".format(mat) +
-                            "that did not have distinct rows.")
+            raise IndexError(
+                    "Matrix.__init__ was given a 2D list '{}' ".format(mat) +
+                    "that did not have distinct rows.")
         self.size = (self.m, self.n)
 
     @property
@@ -66,7 +70,7 @@ class Matrix(object):
                 else:
                     msg = "Invalid matrix index argument type: {}, {}"
                     raise TypeError(msg.format(type(i), type(j)))
-        
+
         elif type(key) in (int, slice):
             try:
                 if type(key) is int:
@@ -77,7 +81,7 @@ class Matrix(object):
                 msg = "Invalid slice/index '{}' given for matrix:\n{}."
                 raise IndexError(msg.format(key, self))
         else:
-            raise TypeError("Invalid matrix index type: {}".format(type(inp)))
+            raise TypeError("Invalid matrix index type: {}".format(type(key)))
 
     def __setitem__(self, key, value):
         """
@@ -126,10 +130,12 @@ class Matrix(object):
                 else:
                     msg = "Invalid matrix index argument type: {}, {}"
                     raise TypeError(msg.format(type(i), type(j)))
-        elif type(key) in (int, slice):
+        elif type(key) is slice:
             self.mat[key] = value.mat
+        elif type(key) is int:
+            self.mat[key] = value.mat[0]
         else:
-            raise TypeError("Invalid matrix index type: {}".format(type(inp)))
+            raise TypeError("Invalid type for matrix index: {}".format(type(key)))
 
     def list_rows(self):
         """
@@ -295,18 +301,19 @@ class Matrix(object):
         Defines the * operator for element-wise multiplication between matrices.
         Syntax: C = A * B
         """
-        return ewise(self, other, func=operator.mul)
+        try:
+            return ewise(self, other, func=operator.mul)
+        except MismatchedMatrixSize:
+            msg = "This operation is only supported for matrices of the same size." + \
+                    " Did you mean to use @ instead of *?"
+            raise MismatchedMatrixSize(msg)
 
     def __rmul__(self, scalar):
         """
         Allows matrices to be multiplied by scalars on the LEFT side of the *.
         Syntax: B = 12 * A
         """
-        if not isinstance(scalar, Matrix):
-            return self.under(lambda ele: scalar * ele)
-        else:
-            raise TypeError("Scalar multiplication will intentionally fail if " +
-                            "performed on another Matrix.")
+        return self.under(lambda ele: ele * scalar)
 
     def __matmul__(self, other):
         """
@@ -366,6 +373,12 @@ class Matrix(object):
         return Matrix([[ele for j, ele in enumerate(row) if j != jth]
                             for i, row in enumerate(self.mat) if i != ith])
 
+    def augmented(self, M):
+        if M.m != self.m:
+            msg = "Could not augment matrix\n" + str(self) + "\nwith matrix\n" + \
+            str(M) + "\nbecause the number of rows do not match."
+            raise TypeError(msg)
+        return Matrix([r1 + r2 for r1, r2 in zip(self.mat, M.mat)])
 
     def reshape(self, new_size):
         """
@@ -381,6 +394,10 @@ class Matrix(object):
             self.m, self.n = new_size
             expanded = [iter(self)] * self.n
             return Matrix(list(map(list, zip(*expanded))))
+
+    def with_coords(self):
+        return Matrix([[(ele, i,j) for j, ele in enumerate(row)]
+                                   for i, row in enumerate(self.mat)])
 
 
     ##### Alternate Constructors #####
@@ -438,8 +455,8 @@ def ewise(M1, M2, func):
         new_mat = [[func(*pair) for pair in zip(M1, M2)]]
         return Matrix(new_mat).reshape(M1.size)
     else:
-        raise MismatchedMatrixSize("This operation is only supported for matrices of " +
-                                   "the same size. Did you mean to use @ instead of *?")
+        msg = "This operation is only supported for matrices of the same size."
+        raise MismatchedMatrixSize(msg)
 
 
 def list_dot_product(L1, L2):
@@ -519,46 +536,89 @@ def ref(M):
     """
     # Copy M to N
     N = Matrix(M.mat.copy())
+    #print("REF of:", N, sep="\n")
 
-    print("\nREF of", N, sep="\n")
-
-    # Base case
-    if N.m == 1: # N is an mxn matrix
-        if N[0,0] in [0, 1]:
+    # Base case 1
+    if N.m == 1: # If N is row vector (matrix),
+        if N[0,0] in (0, 1):
             return N
         else:
             return 1/N[0,0] * N
-
-    # if col 0 looks like [0,0,0,...]^T or [1,0,0,...]^T
-    if N[0,0] in [1, 0] and all(map(lambda e: e == 0, N[1: , 0])):
-        N[1: , 1: ] = ref(N[1: , 1: ])
+    # Base case 2
+    if N.n == 1: # If N is a column vector:
+        if N[1:] == Z(N.m-1, 1): # If lower part of N is all zeros:
+            if N[0,0] in (0, 1): # If top element is 1 or 0:
+                return N
+            else:
+                # otherwise: normalize the top row and return the column vector.
+                return 1/N[0,0] * N
+        else:
+            pass # Further row reduction needed.
+    # Base case 3
+    if N == Z(N.m, N.n): # If matrix is all zeros,
         return N
 
-    if N[0,0] == 0:
-        N.mat[-1] = N.mat.pop(0) # send top row to bottom
-        return ref(N)
-    else:
-        # Give first row a leading 1
-        if N[0,0] != 1:
-            N[0] = 1/N[0,0] * N[0]
-        
-        # Define a row replacement function
-        def replace(row):
-            print("\nreplace(", repr(row), ")")
-            print("row.mat:", row.mat)
-            print("N.mat:", N.mat)
-            print("N[0]:", N[0])
-            print("N[0].mat:", N[0].mat)
-            print("row[0,0]:", row[0,0])
-            return row - row[0,0]*N[0] \
-                    if row[0,0] != 0 else row # avoid unnecessary division
+    if N[:, 0] != Z(N.m, 1) and N[0,0] == 0:
+        while N[0,0] == 0:
+            N.mat.append(N.mat.pop(0))
+        #print("Shifting rows:", N, sep="\n")
 
-        head = N[0]
-        print("\nHead:", repr(head))
-        tail = list(map(lambda m: m.mat[0], map(replace, N[1:].row_vecs())))
-        print("Tail:", tail)
-        return ref(Matrix(head + tail))
+    # If col 0 looks like [0,0,0,...]^T or [1,0,0,...]^T,
+    if N[0,0] == 1 and N[1:, 0] == Z(N.m-1, 1):
+        N[1: , 1: ] = ref(N[1: , 1: ]) # replace lower-right submatrix with REF of itself.
+        return N
 
+    # If col 0 looks like [0,0,0,...]^T or [1,0,0,...]^T,
+    if N[0,0] == 0 and N[1:, 0] == Z(N.m-1, 1):
+        N[:, 1: ] = ref(N[:, 1: ]) # chop off first column, REF remaining matrix.
+        return N
+
+    # Give first row a leading 1. (We know it is non-zero.)
+    if N[0,0] != 1:
+        N[0] = 1/N[0,0] * N[0]
+
+    # Define a row replacement function
+    def replacer(row):
+        return row - row[0,0]*N[0] \
+                if row[0,0] != 0 else row # avoid unnecessary division
+
+    head = N[0].mat
+    tail = list(map(lambda m: m.mat[0], map(replacer, N[1:].row_vecs())))
+    return ref(Matrix(head + tail))
+
+def rref(M):
+    if M == Z(M.m, M.n) or M == I(M.m):
+        return Matrix(M.mat.copy())
+
+    N = ref(M)
+
+    stop = N.m if [0]*N.n not in N.list_rows() else list(N.list_rows()).index([0]*N.n)
+    for i in reversed(range(stop)):
+        pivot_index = next(idx for idx, ele in enumerate(N[i]) if ele != 0)
+        rows_above = list(N.list_rows())[:i]
+        for j, mutate_row in enumerate(rows_above):
+            c = N[j, pivot_index]
+            N[j] = N[j] - c*N[i]
+    return N
+
+def row_reduction_inverse(M):
+    """
+    Returns the inverse of the given matrix via a row-reduction algorithm.
+    """
+    func = Fraction if isinstance(M[0,0], Fraction) else lambda x: x
+    Aug = rref(M.augmented(I(M.n).under(func)))
+    if round(Aug[:, :M.n], 10) != I(M.n):
+        msg = "Something went wrong while row-reducing to an inverse:\n" + str(Aug)
+        raise MatrixError(msg)
+    return Aug[:, M.n:]
+
+def cofactor_expansion_inverse(M, Det=None):
+    """
+    Returns the inverse of the given matrix via a cofactor expansion algorithm.
+    """
+    if Det == None:
+        Det = det(M)
+    return 1/Det * adj(M)
 
 def checkerboard(M):
     """
@@ -586,11 +646,16 @@ def det(M):
                             "Was given matrix of size {}x{}.".format(M.m, M.n))
     elif M.size == (1, 1):
         return M[0,0]
+    elif M.size == (2,2):
+        return M[0,0]*M[1,1] - M[1,0]*M[0,1]
     elif M.size == (3, 3):
         return M[0,0]*(M[1,1]*M[2,2] - M[2,1]*M[1,2]) - \
                M[0,1]*(M[1,0]*M[2,2] - M[2,0]*M[1,2]) + \
                M[0,2]*(M[1,0]*M[2,1] - M[2,0]*M[1,1])
     else:
+        # The determinant of a matrix is zero if it has a row or column of zeros.
+        if Z(1, M.n) in list(M.row_vecs()) + list(M.col_vecs()):
+            return 0
         # 1) For each element in the first row of the checkerboard (all are either +/-1):
         #       a) Multiply that element by the determinant of that element's minor.
         #       b) Add that result to the running total.
@@ -609,23 +674,10 @@ def inv(M):
     Det = det(M)
     if Det == 0:
         raise MatrixError("This matrix is not invertible becuase it has a zero determinant.")
+    if M.n < 4: # I graphed it. Turns out for n<4, cofactor expansion is a lil' faster.
+        return cofactor_expansion_inverse(M, Det)
     else:
-        return 1/Det * adj(M)
-
-def characteristic_polynomial(M):
-    if M.m != M.n:
-        raise MatrixError("Eigenvalues cannot be found for non-square matrices.")
-    else:
-        lambda_ = Polynomial("x")
-        L = I(M.n).under(lambda e: e * lambda_)
-        return det(L - M)
-
-def eigenvalues(M):
-    """
-    Returns the eigenvalues of the given matrix.
-    Syntax: eigs = eigenvalues(M)
-    """
-    return roots(characteristic_polynomial(M))
+        return row_reduction_inverse(M)
 
 
 class MatrixError(Exception):
@@ -650,33 +702,3 @@ class InvalidMatrixFormat(MatrixError):
     No docs here...
     """
     pass
-
-
-if __name__ == '__main__':
-    M = Matrix([[ 0, 1, 2, 3, 4, 5, 6, 7],
-                [ 9, 8, 7, 6, 5, 4, 3, 2],
-                [-0,-1,-2,-3,-4,-5,-6,-7],
-                [-9,-8,-7,-6,-5,-4,-3,-2],
-                [-0, 1,-2, 3,-4, 5,-6, 7],
-                [-9, 8,-7, 6,-5, 4,-3, 2]])
-
-    # print(M)
-    # print()
-
-    # out = M[1:3, 1:3]
-    # print(out)
-    # print(type(out))
-
-    # M[-4:-1, -3:] = Matrix([[9999, 9999, 8888],
-    #                       [9999, 9999, 8888],
-    #                       [9999, 9999, 8888]])
-    # print(M)
-    
-    print(ref(M))
-
-
-    print()
-
-
-
-
