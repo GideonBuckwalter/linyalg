@@ -17,6 +17,8 @@ Matrix([[ 0.1],
 >>> degree = 2
 >>> A = Matrix([[x_ ** e for e in range(degree+1)] for x_ in x])
 >>> print(A)
+```
+```text
 [1, 0,  0]
 [1, 1,  1]
 [1, 2,  4]
@@ -24,6 +26,8 @@ Matrix([[ 0.1],
 [1, 4, 16]
 [1, 5, 25]
 6x3
+```
+```py3
 >>> # Approximate a solution with 'A^T A Beta = A^T y'.
 >>> Beta = inv(A.T @ A) @ A.T @ y
 >>> Beta
@@ -33,5 +37,7 @@ Matrix([[ 0.03214285714286369],
 >>> from linyalg.poly import *
 >>> p = Polynomial(list(Beta))
 >>> print(p)
+```
+```text
 0.03214285714286369 + 0.028928571428559202x + 1.0267857142857135x^2
 ```
